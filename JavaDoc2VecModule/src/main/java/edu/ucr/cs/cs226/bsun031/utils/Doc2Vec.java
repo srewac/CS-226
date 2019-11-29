@@ -52,7 +52,7 @@ public class Doc2Vec {
                 .sampling(0)
                 .build();
 
-       // vec.fit();
+        vec.fit();
         //logger.info("Similiar Sentence:");
         //Collection<String> lst = vec.wordsNearest("doc1", 10);
         //System.out.println(lst);
