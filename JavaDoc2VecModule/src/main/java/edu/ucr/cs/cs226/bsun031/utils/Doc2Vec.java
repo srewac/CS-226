@@ -23,9 +23,9 @@ public class Doc2Vec {
         //logger.info("Loading sentence data: "+inputTxt.getName());
         System.out.println("Loading sentence data: "+inputTxt.getName());
         SentenceIterator iter = new LineSentenceIterator(inputTxt);
-        //切词操作
+        //Tokenizing
         TokenizerFactory token = new DefaultTokenizerFactory();
-        //去除特殊符号及大小写转换操作
+        //remove special symbols
         token.setTokenPreProcessor(new CommonPreprocessor());
         AbstractCache<VocabWord> cache=new AbstractCache<VocabWord>();
         //add the tag
@@ -53,7 +53,7 @@ public class Doc2Vec {
                 .build();
 
        // vec.fit();
-        //logger.info("相似的句子:");
+        //logger.info("Similiar Sentence:");
         //Collection<String> lst = vec.wordsNearest("doc1", 10);
         //System.out.println(lst);
         System.out.println("Writing vector to document");
@@ -62,7 +62,7 @@ public class Doc2Vec {
         writer.writeResultVectors(vec,outputPath,tagList);
         //logger.info("Writing result to "+outputPath+" successful!");
         System.out.println("Writing result to "+outputPath+" successful!");
-        //logger.info("向量获取:");
+        //logger.info("Getting Vector for word:");
         //double[] docVector = vec.getWordVector("frozen");
         //System.out.println(Arrays.toString(docVector));
         return true;
