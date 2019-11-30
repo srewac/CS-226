@@ -9,22 +9,19 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.Function;
-import org.apache.spark.ml.feature.Tokenizer;
-import org.apache.spark.ml.feature.HashingTF;
-import org.apache.spark.ml.feature.IDF;
-import org.apache.spark.ml.feature.IDFModel;
+import org.apache.spark.ml.feature.*;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.functions;
 
 
 public class single {
 
     public String getValue(String path, String src) {
-//        SparkConf conf = new SparkConf();
-//        conf.setAppName("WordCounter").setMaster("local");
-//        JavaSparkContext sc = new JavaSparkContext(conf);
+
+
         SparkSession spark = SparkSession
                 .builder()
                 .appName("TF.IDF")
@@ -34,48 +31,50 @@ public class single {
         // final HashingTF hTF = new HashingTF();
 
 		/*
-		 	hello mllib
+		 	mllib
 			spark
-			goodBye spark
-			hello spark
-			goodBye spark
 		 */
+
 		Dataset<Row> df = spark.read().json(path+"/"+src+"/COMMENTS_"+src+".json").select("body");
         df.show(5);
-        Tokenizer tokenizer = new Tokenizer().setInputCol("body").setOutputCol("words");
+        df.withColumn("body", functions.regexp_replace(df.col("body"), "[^a-zA-Z.',?!]", " "))
+                .filter("body != ' '")
+                .filter("body != ''"); // remove strange symbols include 0-9,.?!
+        df.show(5);
+
+        Tokenizer tokenizer = new Tokenizer()
+                .setInputCol("body")
+                .setOutputCol("token");
         Dataset<Row> wordsData = tokenizer.transform(df);
 
-        HashingTF hashingTF = new HashingTF()
-                .setInputCol("words")
-                .setOutputCol("rawFeatures");
+        StopWordsRemover remover = new StopWordsRemover()
+                .setInputCol("token")
+                .setOutputCol("filtered");
+        Dataset<Row> wordFiltered = remover.transform(wordsData);
+        wordFiltered.show(5); 
 
-        Dataset<Row> featurizedData = hashingTF.transform(wordsData);
+        HashingTF hashingTF = new HashingTF()
+                .setInputCol("filtered")
+                .setOutputCol("rawFeatures");
+                // .setNumFeatures(262144);
+
+        Dataset<Row> featurizedData = hashingTF.transform(wordFiltered);
         featurizedData.show(5); 
 
         // IDF is an Estimator which is fit on a dataset and produces an IDFModel
         IDF idf = new IDF()
-                .setInputCol("rawFeatures").setOutputCol("features");
+                .setInputCol("rawFeatures")
+                .setOutputCol("features");
         IDFModel idfModel = idf.fit(featurizedData);
     
         // The IDFModel takes feature vectors (generally created from HashingTF or CountVectorizer) and scales each column
         Dataset<Row> rescaledData = idfModel.transform(featurizedData);
+        rescaledData.show(5);
 
-		// JavaRDD<String> text = df.toJavaRDD().map(s -> s.getAs("body").toString());
+        // Get Top N data and filter deleted row
+        // rescaledData.select(" where ");
 
-        // JavaRDD<List<String>> wordFlow = text
-		// 		.map(new Function<String, List<String>>() {
-        //             @Override
-        //             public List<String> call(String line) throws Exception {
-		// 				String[] words = line.replaceAll("[^a-zA-Z\\s]", "").split(" ");
-		// 				return Arrays.asList(words);
-		// 			}
 
-        //         }).cache();
-                
-        // JavaRDD<Vector> tf = hTF.transform(wordFlow).cache();
-        // IDFModel idf = new IDF().fit(tf);
-
-        // JavaRDD<Vector> tfIdf = idf.transform(tf);
         List<String> list = new ArrayList();
         for(Row row:rescaledData.collectAsList()){
             list.add(row.toString());
