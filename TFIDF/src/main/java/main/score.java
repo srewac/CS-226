@@ -1,20 +1,25 @@
 package main;
 
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
-import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.functions;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.sql.*;
 
 import java.io.*;
 
 public class score {
-    public String getValue(String path, String src) {
+    private static SparkSession spark = null;
+
+    public static SparkSession initSpark() {
+        if (spark == null) {
+            spark = SparkSession
+                    .builder()
+                    .appName("TF.IDF")
+                    .getOrCreate();
+        }
+        return spark;
+    }
+    public static Dataset<Row> getValue(String path, String src) {
         String col = "score";
-        SparkSession spark = SparkSession
-                .builder()
-                .appName("TF.IDF")
-                // .config("")
-                .getOrCreate();
+        SparkSession spark = initSpark();
         Dataset<Row> df = spark.read().json(path+"/"+src+"/COMMENTS_"+src+".json").select(col);
         df.describe().show();
 
@@ -22,48 +27,43 @@ public class score {
                 .select(functions.mean(col).alias("mean"), functions.min(col).alias("min"),
                         functions.max(col).alias("max"), functions.stddev(col).alias("stddev"));
         des.show();
-        Dataset<Row> df1 = spark.read().json(path+"/"+src+"/SUBMISSION_"+src+".json").select(col, "upvote_ratio");
-        //    .withColumn("name", functions.lit(src))
-        //    .withColumn("glo_score", functions.lit(df1.select(col).head().getInt(0)))
-        //    .withColumn("upvote_ratio", functions.lit(df1.select("upvote_ratio").head().getInt(0)));
-        des.show();
-        Dataset<Row> attr = des
-                .withColumn("label", functions.lit(src))
-                .withColumn("glo_score", functions.lit(df1.select(col).head().getLong(0)))
-                .withColumn("upvote_ratio", functions.lit(df1.select("upvote_ratio").head().getDouble(0)));
-        attr.show();
-        String res = attr.toJSON().toString();
-        spark.close();
-        return res;
+        // Dataset<Row> df1 = spark.read().json(path+"/"+src+"/SUBMISSION_"+src+".json").select(col, "upvote_ratio");
+        return des.select( "mean", "stddev", "min", "max");
     }
-    public static void main(String[] args) throws FileNotFoundException, UnsupportedEncodingException {
+    public static void main(String[] args) throws IOException {
         String input = args[0], output = args[1];
         single s = new single();
-        score s1 = new score();
+
         String[] dir = s.findDir(input);
-
-
-        boolean append = true;
-        boolean autoFlush = true;
-        String charset = "UTF-8";
-        String filePath = output;
-        String tmp;
-
-        File file = new File(filePath);
-        FileOutputStream fos;
-        OutputStreamWriter osw;
-        BufferedWriter bw;
-        PrintWriter pw;
+        JavaRDD<String> df;
         for (String d : dir) {
-            if (d.equals("movie")) continue;
-            if(!file.getParentFile().exists()) file.getParentFile().mkdirs();
-            fos = new FileOutputStream(file, append);
-            osw = new OutputStreamWriter(fos, charset);
-            bw = new BufferedWriter(osw);
-            pw = new PrintWriter(bw, autoFlush);
-            tmp = s1.getValue(input, d);
-            pw.write(tmp);
+            df = getValue(input, d).toJSON().toJavaRDD();
+            df.saveAsTextFile(output +"/"+ d);
         }
+
+/*        File file = new File(output);
+        if (!file.exists()) {
+            file.getParentFile().mkdir();
+            try {
+                file.createNewFile();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        FileOutputStream fos = new FileOutputStream(file, true);
+        BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(fos, "UTF-8"));
+        PrintWriter pw = new PrintWriter(writer, true);
+        String res;
+        for (String d: dir) {
+            if (d.equals("movie")) break;
+            res = getValue(input, d);
+            System.out.println(res);
+            pw.write(res);
+        }
+        pw.close();
+        writer.close();
+        fos.close();*/
+
     }
 
 }

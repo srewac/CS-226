@@ -1,26 +1,29 @@
 package main;
 
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.ml.feature.*;
+import org.apache.spark.ml.linalg.BLAS;
+import org.apache.spark.ml.linalg.Vector;
+import org.apache.spark.ml.linalg.Vectors;
+import org.apache.spark.sql.*;
+import org.apache.spark.sql.types.*;
+import scala.Tuple2;
+
 import java.io.*;
 import java.util.Arrays;
 
-import org.apache.spark.SparkConf;
-import org.apache.spark.api.java.JavaPairRDD;
-import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.api.java.function.Function;
-import org.apache.spark.ml.feature.*;
-import org.apache.spark.sql.*;
-import scala.Tuple2;
+import static org.apache.spark.sql.functions.*;
 
 
 public class single {
     private static SparkSession spark = null;
-/*    private static JavaSparkContext sc = null;
+    private static JavaSparkContext sc = null;
     public static JavaSparkContext initContext(){
         if (sc == null)
-            sc = new JavaSparkContext(new SparkConf());
+            sc = new JavaSparkContext(initSpark().sparkContext());
         return sc;
-    }*/
+    }
 
     public static SparkSession initSpark() {
         if (spark == null) {
@@ -32,29 +35,27 @@ public class single {
         return spark;
     }
 
-    public static Dataset<Row> initReddit(String path, String src) {
+    public Dataset<Row> initReddit(String path, String src) {
         SparkSession spark = initSpark();
 
         Dataset<Row> df = spark.read()
                 .json(path+"/"+src+"/COMMENTS_"+src+".json")
-                .select("body");
+                // .filter("score > 10")
+                .select("body", "score")
+                .orderBy(col("score").desc()).limit(25);
         Dataset<Row> new_df = df
                 .withColumn("body", functions.regexp_replace(df.col("body"),"[^a-zA-Z.'?!]+"," "));
         Dataset<Row> new_df1 = new_df
-                .withColumn("body", functions.trim(new_df.col("body")));
-
-        Dataset<Row> new_df2 = new_df1
-                .withColumn("body", functions.regexp_replace(new_df1.col("body"), "\\s+", " "))
+                .withColumn("body", functions.trim(new_df.col("body")))
                 .filter("body != '\\s+deleted'")
-                .filter("body != 'deleted'")
                 .filter("body != ''");
-        new_df2.collect();
-        new_df2.show(5);
+
+        // new_df2.show(5);
 
         Tokenizer tokenizer = new Tokenizer()
                 .setInputCol("body")
                 .setOutputCol("token");
-        Dataset<Row> wordsData = tokenizer.transform(new_df2);
+        Dataset<Row> wordsData = tokenizer.transform(new_df1);
 
         StopWordsRemover remover = new StopWordsRemover()
                 .setInputCol("token")
@@ -62,8 +63,8 @@ public class single {
         Dataset<Row> wordFiltered = remover
                 .transform(wordsData)
                 // .filter("filtered != null")
-                .withColumn("label", functions.lit(src));
-        wordFiltered.show(5);
+                .withColumn("label", functions.lit("Reddit"));
+        // wordFiltered.show(5);
         return wordFiltered.select("label", "filtered");
     }
 
@@ -100,10 +101,10 @@ public class single {
         }
     }
 
-    public static Dataset<Row> initTwitter(String path) {
+    public Dataset<Row> initTwitter(String path) {
         SparkSession spark = initSpark();
 
-        JavaSparkContext sc = new JavaSparkContext(spark.sparkContext());
+        JavaSparkContext sc = initContext();
         JavaRDD<String> in = sc.textFile(path);
 
         JavaRDD<TW> table = in
@@ -119,7 +120,7 @@ public class single {
                 });
 
         Dataset<Row> twDF = spark.createDataFrame(table, TW.class);
-        twDF.show(5);
+        // twDF.show(5);
 
         Tokenizer tokenizer = new Tokenizer()
                 .setInputCol("body")
@@ -132,29 +133,30 @@ public class single {
         Dataset<Row> wordFiltered = remover
                 .transform(wordsData);
                 // .filter("filtered != null");
-        wordFiltered.show(5);
+        // wordFiltered.show(5);
         return wordFiltered.select("label", "filtered");
     }
-    public Dataset<Row> getValue(String path, String tw) {
+    public Dataset<Row> getValue(String path, String tw, String d) {
 
         SparkSession spark = initSpark();
+/*        StructType schema = DataTypes.createStructType(new StructField[] {
+            new StructField("label", DataTypes.StringType, true, Metadata.empty()),
+                new StructField("filtered", new ArrayType(DataTypes.StringType, true), true, Metadata.empty())
+        });*/
 
-        // final HashingTF hTF = new HashingTF();
-		/*
-		 	mllib
-			spark
-		 */
+
         single s = new single();
-        Dataset<Row> twitter = initTwitter(tw);
-        Dataset<Row> reddit;
+//        String[] dir = s.findDir(path);
+//
+//        Dataset<Row> tmp = s.initReddit(path, dir[0])
+//                .limit(1).withColumn("label", when(col("label").equalTo("Reddit"), "X"));
+//        Dataset<Row> reddit1;
 
-        String[] dir = s.findDir(path);
-        for (String d : dir) {
-            if (d.equals("movie")) continue;
-            reddit = initReddit(path, d);
-            twitter = twitter.union(reddit);
-        }
-        Dataset<Row> df = twitter;
+
+        Dataset<Row> reddit = s.initReddit(path, d);
+
+        Dataset<Row> twitter = s.initTwitter(tw);
+        Dataset<Row> df = twitter.union(reddit);
 
 /*        CountVectorizerModel cv = new CountVectorizer()
                 .setInputCol("filtered")
@@ -170,7 +172,7 @@ public class single {
                 .setOutputCol("rawFeatures");
 
         Dataset<Row> featurizedData = hashingTF.transform(df);
-        featurizedData.show(5);
+        // featurizedData.show(5);
 
         // IDF is an Estimator which is fit on a dataset and produces an IDFModel
         IDF idf = new IDF()
@@ -185,11 +187,102 @@ public class single {
         // Get Top N data and filter deleted row
 
         // SparseVector s = new SparseVector();
-        return rescaledData.select("label", "filtered", "features");
+        return rescaledData.select("label", "features");
     }
 
-    public static void similarDataset () {
+    public static class SimilarText implements Serializable {
+        private long label1;
+        private long label2;
+        private double similarity;
 
+        public long getLabel1() {
+            return label1;
+        }
+
+        public long getLabel2() {
+            return label2;
+        }
+
+        public double getSimilarity() {
+            return similarity;
+        }
+
+        public void setLabel1(long label1) {
+            this.label1 = label1;
+        }
+
+        public void setLabel2(long label2) {
+            this.label2 = label2;
+        }
+
+        public void setSimilarity(double similarity) {
+            this.similarity = similarity;
+        }
+    }
+    public static Dataset<Row> similarDataset (Dataset<Row> res) {
+        SparkSession spark = initSpark();
+        spark.conf().set("spark.sql.crossJoin.enabled", "true");
+        Dataset<Row> reddit = res.filter("label = 'Reddit'").withColumn("id", monotonically_increasing_id());
+        Dataset<Row> twitter = res.filter("label = 'Twitter'").withColumn("id", monotonically_increasing_id());
+
+//        UDF1 dot = new UDF1<Row[], double[]>() {
+//            @Override
+//            public double[] call(Row[] row) throws Exception {
+//                Row r = row[0], t = row[1];
+//                String
+//                return new double[0];
+//            }
+//        };
+        Dataset<Row> jj = twitter.select("id", "features").join(reddit.select("id", "features"));
+        // jj.show(10);
+
+        JavaRDD<SimilarText> similarTextDataset = jj.toJavaRDD()
+                .map(r -> {
+                        long label1 = r.getLong(0);
+                        long label2 = r.getLong(2);
+
+                        Vector fTwitter = r.getAs(1);
+                        Vector fR = r.getAs(3);
+
+                        double ddot = BLAS.dot(fTwitter.toSparse(), fR.toSparse());
+                        double v1 = Vectors.norm(fTwitter.toSparse(), 2.0);
+                        double v2 = Vectors.norm(fR.toSparse(), 2.0);
+                        double sim = ddot / (v1 * v2);
+
+                        SimilarText similarText = new SimilarText();
+                        similarText.setLabel1(label1);
+                        similarText.setLabel2(label2);
+                        similarText.setSimilarity(sim);
+                        return similarText;
+                });
+
+        Dataset<Row> sim = spark.createDataFrame(
+                similarTextDataset,
+                SimilarText.class
+        );
+/*        Dataset<Row> remain = sim.filter("similarity > 0");
+        System.out.println("cosine");*/
+        // remain.show(10);
+        // sim.select("label1", "label2", "similarity").createOrReplaceTempView("tmp");
+/*        .withColumn("rank",
+                functions.rank().over(Window.partitionBy("label1").orderBy("similarity")))*/
+/*        Dataset<Row> ds1 = sim
+                .groupBy(col("label1").alias("label"))
+                .agg(max("similarity").alias("max")
+                        , min("similarity").alias("min")
+                        , avg("similarity").alias("avg")
+                        , stddev("similarity").alias("dev"));
+        Dataset<Row> ds2 = sim
+                .groupBy(col("label1").alias("label"))
+                .agg(max("similarity").alias("max")
+                        , min("similarity").alias("min")
+                        , avg("similarity").alias("avg")
+                        , stddev("similarity").alias("dev"));
+
+        Dataset<Row> ds = ds1.select("label", "max", "min", "avg", "dev")
+                .union(ds2.select("label", "max", "min", "avg", "dev"));
+        ds.show(5);*/
+        return sim.filter("similarity > 0.0");
     }
 
     public String[] findDir (String path) {
@@ -204,34 +297,24 @@ public class single {
         return directories;
     }
 
-    public static void main(String[] args) throws FileNotFoundException, UnsupportedEncodingException {
-        String input = args[0], output = args[1], tw = args[2];
+    public static void main(String[] args) throws IOException {
+        String input = args[0], output = args[1], tw = args[2], output1 = args[3];
         single s = new single();
+        // similarDataset(getValue(input, tw));
+
+
+/*        JavaRDD<String> res = init.toJSON().toJavaRDD();
+
+        // System.out.println(res.toString());
+        res.saveAsTextFile(output);*/
         String[] dir = s.findDir(input);
-        s.getValue(input, tw);
-
-/*        boolean append = true;
-        boolean autoFlush = true;
-        String charset = "UTF-8";
-        String filePath = output;
-        String tmp;*/
-
-/*        File file = new File(filePath);
-        FileOutputStream fos;
-        OutputStreamWriter osw;
-        BufferedWriter bw;
-        PrintWriter pw;
-
 
         for (String d : dir) {
-            if (d.equals("movie")) continue;
-            if(!file.getParentFile().exists()) file.getParentFile().mkdirs();
-            fos = new FileOutputStream(file, append);
-            osw = new OutputStreamWriter(fos, charset);
-            bw = new BufferedWriter(osw);
-            pw = new PrintWriter(bw, autoFlush);
-            pw.write(d);
-            break;
-        }*/
+            if (d.equals("movie")) break;
+            JavaRDD<String> res1 = similarDataset(s.getValue(input, tw, d)).toJSON().toJavaRDD();
+            res1.saveAsTextFile(output1+"/"+d);
+        }
+
+
     }
 }
