@@ -31,7 +31,7 @@ public class wordCloud {
 
         Dataset<Row> df = spark.read()
                 .json(input+"/"+"T"+"/part-00000");
-        df.toJSON().toJavaRDD().repartition(1).saveAsTextFile(output+"/"+"T");
+        df.toJavaRDD().repartition(1).saveAsTextFile(output+"/"+"T");
         Dataset<Row> t = df.groupBy(functions.col("word")).count();
         Dataset<Row> df1;
         int i = 0;
@@ -40,7 +40,7 @@ public class wordCloud {
             df1 = spark.read()
                     .json(input+"/"+d+"/part-00000")
                     .groupBy(functions.col("word")).count();
-            df1.toJSON().toJavaRDD().repartition(1).saveAsTextFile(output+"/"+d);
+            df1.toJavaRDD().repartition(1).saveAsTextFile(output+"/"+d);
         }
     }
 //    public void bi() throws IOException {
